@@ -1,0 +1,18 @@
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8001:8000"
+
+  mongo:
+    ports: !override
+      - "127.0.0.1:27019:27017"
+
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"
+
+  nginx:
+    ports: !override
+      - "127.0.0.1:8081:80"
+    volumes: !override
+      - ./nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
