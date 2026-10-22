@@ -1,0 +1,204 @@
+name: attendance-dev
+
+x-backend-environment: &backend-environment
+  DB_BACKEND: mssql
+  ENVIRONMENT: testing
+  MONGODB_URL: mongodb://mongo:27017
+  MONGODB_DB_NAME: attendance_dev
+  MONGODB_TLS: "false"
+  REDIS_URL: redis://redis:6379/0
+  MSSQL_SERVER: mssql
+  MSSQL_DATABASE: attendance_dev
+  MSSQL_DRIVER: ODBC Driver 18 for SQL Server
+  MSSQL_TRUSTED_CONNECTION: "false"
+  MSSQL_USERNAME: attendance_dev_app
+  MSSQL_PASSWORD: ${MSSQL_APP_PASSWORD:?Set MSSQL_APP_PASSWORD in attendance_dev/.env}
+  MSSQL_ENCRYPT: "true"
+  MSSQL_TRUST_SERVER_CERTIFICATE: "true"
+  LIVENESS_MIN_FACE_RATIO: "0.07"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: attendance_dev/Dockerfile.backend
+    env_file:
+      - ../backend/.env
+    environment: *backend-environment
+    restart: unless-stopped
+    depends_on:
+      mssql-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [attendance]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: attendance_dev/Dockerfile.backend
+    env_file:
+      - ../backend/.env
+    environment: *backend-environment
+    command:
+      [
+        "python",
+        "-c",
+        "import logging,runpy; logging.getLogger('httpx').setLevel(logging.WARNING); runpy.run_module('app.worker', run_name='__main__')",
+      ]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [attendance]
+
+  absence-worker:
+    build:
+      context: ..
+      dockerfile: attendance_dev/Dockerfile.backend
+    env_file:
+      - ../backend/.env
+    environment: *backend-environment
+    command: ["python", "-m", "app.absence_worker"]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [attendance]
+
+  notification-worker:
+    build:
+      context: ..
+      dockerfile: attendance_dev/Dockerfile.backend
+    env_file:
+      - ../backend/.env
+    environment: *backend-environment
+    command: ["python", "-m", "app.notification_worker"]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [attendance]
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: attendance_dev/Dockerfile.frontend
+      args:
+        VITE_SHARED_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in the backend environment file}
+    restart: unless-stopped
+    networks: [attendance]
+
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on: [backend, frontend]
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [attendance]
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    command: ["http", "--config", "/etc/ngrok/ngrok.yml", "--log=stdout", "nginx:80"]
+    restart: unless-stopped
+    depends_on: [nginx]
+    volumes:
+      - type: bind
+        source: ${LOCALAPPDATA}/ngrok/ngrok.yml
+        target: /etc/ngrok/ngrok.yml
+        read_only: true
+    networks: [attendance]
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [attendance]
+
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [attendance]
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in attendance_dev/.env}
+    restart: unless-stopped
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -b -Q \"SELECT 1\" -o /dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [attendance]
+
+  mssql-init:
+    image: mcr.microsoft.com/mssql-tools:latest
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in attendance_dev/.env}
+      MSSQL_APP_PASSWORD: ${MSSQL_APP_PASSWORD:?Set MSSQL_APP_PASSWORD in attendance_dev/.env}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools/bin/sqlcmd \
+          -S mssql -U sa -C -b -Q \
+          "IF DB_ID(N'attendance_dev') IS NULL CREATE DATABASE [attendance_dev];
+           IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'attendance_dev_app')
+             CREATE LOGIN [attendance_dev_app] WITH PASSWORD = '$$MSSQL_APP_PASSWORD';
+           ALTER AUTHORIZATION ON DATABASE::[attendance_dev] TO [attendance_dev_app];"
+    networks: [attendance]
+
+networks:
+  attendance:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  mssql-data:
+  redis-data:
