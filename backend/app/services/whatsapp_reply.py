@@ -107,10 +107,17 @@ def build_reply_message(
         reason = "Photo date mismatch"
     elif any("duplicate" in issue for issue in issues):
         reason = "Duplicate or reused photo"
-    elif any("geofence" in issue or "photo_gps_missing" in issue for issue in issues):
-        reason = "Location mismatch or missing GPS"
+    elif any(
+        "geofence" in issue
+        or issue.startswith(("location_", "assigned_city", "assigned_district"))
+        or issue == "photo_gps_missing"
+        for issue in issues
+    ):
+        reason = "Outside assigned range/city or location could not be verified"
     elif any("face" in issue or "identity" in issue for issue in issues):
         reason = "Face verification failed"
+    elif "photo_timestamp_missing" in issues:
+        reason = "Photo date/time is missing or unclear"
     elif "overlay_extraction_incomplete" in issues:
         reason = "Date, time, or location is missing or unclear"
     elif any("liveness" in issue for issue in issues):

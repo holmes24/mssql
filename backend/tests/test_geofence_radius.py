@@ -43,17 +43,17 @@ class GeofenceRadiusTests(unittest.TestCase):
         self.assertFalse(outside_distance[0])
         self.assertTrue(default_radius[0])
 
-    def test_existing_and_new_people_default_to_five_kilometers(self):
+    def test_existing_and_new_people_default_to_eight_kilometers(self):
         self.assertEqual(
             RosterEntry(phone_number="911234567890", employee_id="FS001", name="Supervisor")
             .geofence_radius_km,
-            5,
+            8,
         )
         self.assertEqual(
             EmployeeRegistrationRequest(
                 phone_number="911234567890", name="Supervisor"
             ).geofence_radius_km,
-            5,
+            8,
         )
 
     def test_radius_must_be_positive(self):

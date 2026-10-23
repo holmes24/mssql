@@ -7,6 +7,7 @@ import re
 
 _STATIC_LABELS = {
     "unregistered_phone_number": "Unregistered phone number — no roster match",
+    "photo_timestamp_missing": "Could not read the photo date/time",
     "overlay_extraction_incomplete": "Could not read location/time from photo overlay",
     "no_face_detected": "No face detected in photo",
     "not_enrolled": "Employee not yet enrolled for face verification",
@@ -15,6 +16,15 @@ _STATIC_LABELS = {
     "shift_after_window": "Submitted after allowed shift window",
     "shift_unparseable": "Shift time parsing failure",
     "assigned_site_not_configured": "Assigned site location not configured in roster",
+    "assigned_city_not_configured": "Assigned city not configured in roster",
+    "assigned_district_not_configured": "Assigned district not configured in roster",
+    "location_city_unavailable": "Outside assigned range; city/town could not be verified — manual review required",
+    "location_outside_range_and_city": "Outside assigned range and city/town — manual review required",
+    "location_boundary_uncertain": "GPS is near a district boundary; manual review required",
+    "location_lookup_unavailable": "Unable to verify city/district from GPS coordinates",
+    "location_place_unavailable": "Could not read a place name from the attendance photo",
+    "location_district_unavailable": "Could not determine the attendance district",
+    "location_out_of_area": "Attendance photo was outside the assigned city/district",
 }
 
 
@@ -80,7 +90,12 @@ def flag_reason_from_issues(issues: list[str]) -> str | None:
             return "DATE"
 
     for issue in issues:
-        if "geofence" in issue:
+        if (
+            "geofence" in issue
+            or issue.startswith("location_")
+            or issue.startswith("assigned_city")
+            or issue.startswith("assigned_district")
+        ):
             return "LOCATION"
 
     for issue in issues:

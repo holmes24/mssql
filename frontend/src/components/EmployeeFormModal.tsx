@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { roleShiftDefaults } from '../utils/shiftDefaults';
 import axios from 'axios';
 import { createEmployee, updateEmployee, type CreateEmployeePayload } from '../api/employees';
 import type { AttendanceRole, Coordinator, Employee } from '../types';
@@ -37,11 +38,12 @@ export function EmployeeFormModal({
     parent_employee_id: employee?.parent_employee_id ?? undefined,
     area: employee?.area ?? undefined,
     designation: employee?.designation ?? undefined,
+    location_check_enabled: employee?.location_check_enabled ?? true,
     assigned_site: employee?.assigned_site ?? undefined,
-    geofence_radius_km: employee?.geofence_radius_km ?? 5,
-    shift_start: employee?.shift_start ?? undefined,
-    shift_end: employee?.shift_end ?? undefined,
-    shift_grace_minutes: employee?.shift_grace_minutes ?? undefined,
+    geofence_radius_km: employee?.geofence_radius_km ?? 8,
+    shift_start: employee?.shift_start ?? roleShiftDefaults(employee?.role ?? 'FS').shift_start,
+    shift_end: employee?.shift_end ?? roleShiftDefaults(employee?.role ?? 'FS').shift_end,
+    shift_grace_minutes: employee?.shift_grace_minutes ?? roleShiftDefaults(employee?.role ?? 'FS').shift_grace_minutes,
   });
   const [phoneDigits, setPhoneDigits] = useState(initialLocalDigits);
   const [saving, setSaving] = useState(false);
@@ -73,6 +75,8 @@ export function EmployeeFormModal({
   function handleRoleChange(role: AttendanceRole) {
     setForm((current) => ({
       ...current,
+      ...roleShiftDefaults(role),
+      location_check_enabled: role === 'FS' ? (current.location_check_enabled ?? true) : true,
       role,
       pc_id: role === 'LS' ? undefined : current.pc_id,
       parent_employee_id: role === 'LS' ? current.parent_employee_id : undefined,
@@ -271,23 +275,25 @@ export function EmployeeFormModal({
               style={inputStyle}
             />
           </Field>
-          <Field label="Allowed distance from attendance site (km)">
-            <input
-              type="number"
-              min="0.1"
-              step="0.1"
-              value={form.geofence_radius_km ?? 5}
-              onChange={(e) => set('geofence_radius_km', Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-md text-sm border"
-              style={inputStyle}
-            />
-            <p className="mt-1 text-xs" style={{ color: 'var(--color-ink-faint)' }}>
-              Default: 5 km. A site and GPS location in the submitted image are required.
-            </p>
-          </Field>
         </div>
 
+        {form.role === 'FS' && (
+          <label className="block mb-4 text-sm">
+            <input type="checkbox" checked={form.location_check_enabled !== false}
+              onChange={(e) => set('location_check_enabled', e.target.checked)} className="mr-2" />
+            Enable location check
+            <span className="block mt-1 text-xs">When disabled, GPS, distance and city/town do not affect attendance. Photo date/time and face checks still apply.</span>
+          </label>
+        )}
+        {(form.role !== 'FS' || form.location_check_enabled !== false) && <>
+        <label className="block mb-4 text-sm">Allowed range (km)
+          <input type="number" min="0.01" step="any" value={form.geofence_radius_km ?? 8}
+            onChange={(e) => set('geofence_radius_km', Number(e.target.value))}
+            className="block w-full px-3 py-2 rounded-md text-sm border" style={inputStyle} />
+          <span className="text-xs">Default: 8 km. Change only when needed. Outside this range, check the same city/town.</span>
+        </label>
         <div className="mb-4"><AssignedSiteMap site={site} onChange={setSite} /></div>
+        </>}
 
         {error && (
           <p className="text-xs mb-3" style={{ color: 'var(--color-absent)' }}>

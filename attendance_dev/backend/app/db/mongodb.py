@@ -13,6 +13,7 @@ from pymongo import ReturnDocument
 
 from app.config import settings
 from app.services.attendance_grid import marker_for_submission
+from app.services.shift_check import role_shift_defaults
 
 logger = logging.getLogger("db")
 
@@ -60,6 +61,11 @@ class AssignedSite(BaseModel):
     name: str
     lat: float = Field(ge=-90, le=90)
     long: float = Field(ge=-180, le=180)
+    city: str | None = None
+    district: str | None = None
+    district_id: str | None = None
+    dataset_id: str | None = None
+    match_level: Literal["city", "district"] = "city"
 
 
 class Coordinator(BaseModel):
@@ -93,8 +99,9 @@ class RosterEntry(BaseModel):
     parent_employee_id: str | None = None
     area: str | None = None
     designation: str | None = None
+    location_check_enabled: bool = True
     assigned_site: AssignedSite | None = None
-    geofence_radius_km: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    geofence_radius_km: float = Field(default=8.0, gt=0, allow_inf_nan=False)
     shift_start: str | None = None
     shift_end: str | None = None
     shift_grace_minutes: int | None = None
@@ -108,8 +115,9 @@ class EmployeeRegistrationRequest(BaseModel):
     parent_employee_id: str | None = None
     area: str | None = None
     designation: str | None = None
+    location_check_enabled: bool = True
     assigned_site: AssignedSite | None = None
-    geofence_radius_km: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    geofence_radius_km: float = Field(default=8.0, gt=0, allow_inf_nan=False)
     shift_start: str | None = None
     shift_end: str | None = None
     shift_grace_minutes: int | None = None
@@ -122,6 +130,7 @@ class EmployeeUpdateRequest(BaseModel):
     parent_employee_id: Optional[str] = None
     area: Optional[str] = None
     designation: Optional[str] = None
+    location_check_enabled: bool = True
     assigned_site: Optional[AssignedSite] = None
     geofence_radius_km: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     shift_start: Optional[str] = None
@@ -461,11 +470,12 @@ async def register_employee(request: EmployeeRegistrationRequest) -> RosterEntry
         "parent_employee_id": parent_employee_id,
         "area": request.area,
         "designation": request.designation,
+        "location_check_enabled": request.location_check_enabled if request.role == "FS" else True,
         "assigned_site": request.assigned_site.model_dump() if request.assigned_site else None,
         "geofence_radius_km": request.geofence_radius_km,
-        "shift_start": request.shift_start,
-        "shift_end": request.shift_end,
-        "shift_grace_minutes": request.shift_grace_minutes,
+        "shift_start": request.shift_start if request.shift_start is not None else role_shift_defaults(request.role)["shift_start"],
+        "shift_end": request.shift_end if request.shift_end is not None else role_shift_defaults(request.role)["shift_end"],
+        "shift_grace_minutes": request.shift_grace_minutes if request.shift_grace_minutes is not None else role_shift_defaults(request.role)["shift_grace_minutes"],
     }
     try:
         await db.roster.insert_one(doc)
@@ -496,6 +506,11 @@ async def update_employee_details(
     ):
         raise ValueError("phone_number is already registered to another attendance participant")
     role = set_fields.get("role", current.role)
+    if role != "FS" and ("location_check_enabled" in set_fields or role != current.role):
+        set_fields["location_check_enabled"] = True
+    for key, default in role_shift_defaults(role).items():
+        if (role != current.role and key not in set_fields) or (key in set_fields and set_fields[key] in (None, "")):
+            set_fields[key] = default
     pc_id = set_fields.get("pc_id", current.pc_id)
     parent_employee_id = set_fields.get(
         "parent_employee_id",

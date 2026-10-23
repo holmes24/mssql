@@ -16,6 +16,7 @@ x-backend-environment: &backend-environment
   MSSQL_ENCRYPT: "true"
   MSSQL_TRUST_SERVER_CERTIFICATE: "true"
   LIVENESS_MIN_FACE_RATIO: "0.07"
+  GEOCODING_URL: ${GEOCODING_URL:-https://nominatim.openstreetmap.org/reverse}
 
 services:
   backend:

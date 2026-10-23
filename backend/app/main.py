@@ -629,7 +629,7 @@ async def get_attendance(
                 record["check_in_at_ist"] = capture.isoformat()
                 employee = await get_roster_by_employee_id(record["employee_id"]) if record.get("employee_id") else None
                 if employee:
-                    status, _ = check_shift_window(capture, employee.shift_start, employee.shift_end, employee.shift_grace_minutes)
+                    status, _ = check_shift_window(capture, employee.shift_start, employee.shift_end, employee.shift_grace_minutes, employee.role)
                     record["shift_status"] = status
             except (ValueError, TypeError):
                 record["check_in_at_ist"] = None
@@ -653,36 +653,71 @@ async def get_attendance(
             "Automatically verified" if record.get("verdict") == "verified" else
             "Not applicable"
         )
-        radius = record.get("geofence_radius_meters")
-        radius_display = (
-            f"{radius / 1000:.2f}".rstrip("0").rstrip(".") + " km"
-            if isinstance(radius, (int, float)) else None
-        )
-        if record.get("geofence_passed") is True:
-            distance = record.get("geofence_distance_m")
-            distance_display = (
-                f"{distance:.0f} m" if distance < 1000
-                else f"{distance / 1000:.2f} km"
-            ) if isinstance(distance, (int, float)) else None
-            record["geofence_display"] = (
-                f"Within range ({distance_display}; limit {radius_display})"
-                if distance_display and radius_display else
-                f"Within range ({distance_display})" if distance_display else "Within range"
+        location_match_status = record.get("location_match_status")
+        location_match_level = record.get("location_match_level")
+        if location_match_status == "disabled":
+            record["geofence_display"] = "Location check disabled"
+        elif location_match_status == "in_range":
+            distance = record.get("geofence_distance_m", 0)
+            radius = record.get("geofence_radius_meters", 0)
+            record["geofence_display"] = f"Within range ({distance / 1000:.2f} km; limit {radius / 1000:g} km)"
+        elif location_match_status in {"in_area", "out_of_area"}:
+            level_label = "city" if location_match_level == "city" else "district"
+            actual_location = (
+                record.get("attendance_city")
+                if location_match_level == "city"
+                else record.get("attendance_district")
             )
-        elif record.get("geofence_passed") is False:
-            distance = record.get("geofence_distance_m")
-            distance_display = (
-                f"{distance:.0f} m" if distance < 1000
-                else f"{distance / 1000:.2f} km"
-            ) if isinstance(distance, (int, float)) else None
+            expected_location = (
+                record.get("expected_city")
+                if location_match_level == "city"
+                else record.get("expected_district")
+            )
+            if location_match_status == "in_area":
+                record["geofence_display"] = f"In {level_label}: {actual_location}"
+            else:
+                record["geofence_display"] = (
+                    f"Out of {level_label}: {actual_location} "
+                    f"(assigned: {expected_location})"
+                )
+        elif location_match_status == "unavailable":
             record["geofence_display"] = (
-                f"Outside range ({distance_display}; limit {radius_display})"
-                if distance_display and radius_display else
-                f"Outside range ({distance_display})" if distance_display
-                else "Outside range (distance unavailable)"
+                "Outside range; city check unavailable — manual review"
+                if record.get("location_check_method") == "range_then_city"
+                else "City/district check unavailable"
             )
         else:
-            record["geofence_display"] = "Not verified (GPS/site missing)"
+            radius = record.get("geofence_radius_meters")
+            radius_display = (
+                f"{radius / 1000:.2f}".rstrip("0").rstrip(".") + " km"
+                if isinstance(radius, (int, float)) else None
+            )
+        if location_match_status is None:
+            if record.get("geofence_passed") is True:
+                distance = record.get("geofence_distance_m")
+                distance_display = (
+                    f"{distance:.0f} m" if distance < 1000
+                    else f"{distance / 1000:.2f} km"
+                ) if isinstance(distance, (int, float)) else None
+                record["geofence_display"] = (
+                    f"Within range ({distance_display}; limit {radius_display})"
+                    if distance_display and radius_display else
+                    f"Within range ({distance_display})" if distance_display else "Within range"
+                )
+            elif record.get("geofence_passed") is False:
+                distance = record.get("geofence_distance_m")
+                distance_display = (
+                    f"{distance:.0f} m" if distance < 1000
+                    else f"{distance / 1000:.2f} km"
+                ) if isinstance(distance, (int, float)) else None
+                record["geofence_display"] = (
+                    f"Outside range ({distance_display}; limit {radius_display})"
+                    if distance_display and radius_display else
+                    f"Outside range ({distance_display})" if distance_display
+                    else "Outside range (distance unavailable)"
+                )
+            else:
+                record["geofence_display"] = "Not verified (GPS/site missing)"
     return {
         "count": len(records), "total": total, "page": page, "page_size": page_size,
         "records": records,
@@ -876,6 +911,17 @@ async def enroll_face(
     }
 
 
+class LocationCoordinates(BaseModel):
+    lat: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    long: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
+@app.post("/sites/resolve-location")
+async def resolve_site_location(coordinates: LocationCoordinates, admin: AdminUser = Depends(get_current_admin)):
+    from app.services.city_lookup import resolve_city
+    return await resolve_city(coordinates.lat, coordinates.long)
+
+
 @app.post("/sites/extract-photo")
 async def extract_site_photo(file: UploadFile = File(...), admin: AdminUser = Depends(get_current_admin)):
     """Extract GPS camera overlay; admin must confirm coordinates before saving."""
@@ -894,4 +940,18 @@ async def extract_site_photo(file: UploadFile = File(...), admin: AdminUser = De
         raise HTTPException(status_code=422, detail="GPS coordinates not found; enter manually")
     if not (-90 <= result.latitude <= 90 and -180 <= result.longitude <= 180):
         raise HTTPException(status_code=422, detail="Invalid GPS coordinates")
-    return {"name": result.place or "GPS photo location", "lat": result.latitude, "long": result.longitude, "requires_confirmation": True}
+    from app.services.city_lookup import resolve_city
+    area = await resolve_city(result.latitude, result.longitude)
+    return {
+        "name": area.get("place") or result.place or "GPS photo location",
+        "place": area.get("place") or result.place,
+        "city": area.get("city"),
+        "district": area.get("district"),
+        "district_id": area.get("district_id"),
+        "dataset_id": area.get("dataset_id"),
+        "status": area.get("status"),
+        "match_level": "city",
+        "lat": result.latitude,
+        "long": result.longitude,
+        "requires_confirmation": True,
+    }

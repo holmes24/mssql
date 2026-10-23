@@ -75,13 +75,13 @@ class Settings(BaseSettings):
         0.50  # between this and pass => flag for review
     )
     geofence_radius_meters: float = (
-        5000.0  # default per-person radius when no custom value is configured
+        8000.0  # default attendance range; employees may override it
     )
     shift_window_start: str = (
         "09:00"  # confirmed policy default (with per-employee override)
     )
-    shift_window_end: str = "18:00"
-    shift_grace_minutes: int = 15
+    shift_window_end: str = "19:00"
+    shift_grace_minutes: int = 240
 
     # --- Duplicate detection ---
     duplicate_hash_hamming_threshold: int = int(

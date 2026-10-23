@@ -76,8 +76,7 @@ Each initial image submission is analyzed. If a same-day submission is flagged a
 - perceptual image hash compared with earlier submissions to detect likely photo reuse
 - possible date-edit signal when a near-identical previous image has a conflicting overlay date
 - face presence/count and enrolled-identity verification
-- assigned-site geofence
-- per-person assigned-site radius, configurable in kilometers (5 km default)
+- assigned city/district check from the GPS place text on attendance photos; no fixed-radius check
 - unique WhatsApp phone numbers for unambiguous attendance matching
 - passive image-quality/liveness risk signals
 - human-readable fraud flags
@@ -114,7 +113,8 @@ Edit `backend\.env` and set the real credentials. Do not commit `.env`.
 Install frontend dependencies:
 
 ```powershell
-cd ..rontend
+cd ..
+rontend
 npm install
 ```
 
@@ -155,7 +155,8 @@ python -m app.notification_worker
 
 ```powershell
 # Terminal 4 - React
-cd <project>rontend
+cd <project>
+rontend
 npm run dev
 ```
 
@@ -231,7 +232,9 @@ Set `INTERAKT_WEBHOOK_SECRET` and `INTERAKT_API_KEY` only in `.env`/secret stora
 
 ## Admin review
 
-The React Attendance page shows P/L/F/A/N/A status for returned submission records and exposes human-readable reasons. Flagged records can be approved or rejected, and admins can permanently delete an individual attendance record from the table. Review details include server received time, OCR time, geofence, liveness and duplicate/reuse evidence. Face embedding vectors are never returned to the frontend.
+Attendance location policy: pass within the employee-specific range (default 8 km, editable when needed); otherwise compare GPS-derived city/town and administrative context. A mismatch or unavailable lookup is flagged for manual review. City lookup uses a cached, rate-limited Nominatim-compatible provider; within-range attendance does not call it. See attendance_dev/README.md.
+
+The React Attendance page shows P/L/F/A/N/A status for returned submission records and exposes human-readable reasons. Flagged records can be approved or rejected, and admins can permanently delete an individual attendance record from the table. Review details include server received time, OCR time, city/district location result, liveness and duplicate/reuse evidence. Face embedding vectors are never returned to the frontend.
 
 ## Fraud test checklist
 
@@ -261,3 +264,7 @@ The React Attendance page shows P/L/F/A/N/A status for returned submission recor
 - Face model startup errors: verify `insightface` and `onnxruntime` installation and the model runtime supported by the host.
 - Webhook 401: verify the exact Interakt signature header/secret configuration.
 - Workers not consuming: verify Redis is reachable and that all workers use the same stream/group but unique consumer names.
+
+Shift defaults (IST): LSS 07:00–15:00 with 60 minutes grace; LS/FS 09:00–19:00 with 240 minutes grace. New registrations and role changes prefill these values; explicit employee overrides remain supported. Grace is measured after shift start. Existing P/L/AL classification is unchanged.
+
+Field Supervisors (FS) have an Enable location check toggle, on by default. When disabled, missing GPS/assignment, range and city lookup do not flag attendance; the submission records location as disabled. Photo date/time, face, duplicate, liveness and shift checks remain active. LS/LSS cannot bypass location checking. Existing attendance records are unchanged by toggling this setting.

@@ -30,6 +30,31 @@ override remains after deleting its submission and offers to update that status
 instead.
 The test stack flags faces smaller than 7% of the photo for review; users should
 frame a clear face while retaining the location and timestamp overlay.
+Attendance location checks first compare photo GPS to the assigned coordinates
+using the employee's saved range, defaulting to 8 km when absent. The form
+prefills 8 km for new employees and allows a positive custom range when needed.
+Inside or exactly on that range: location passes without any geocoding call.
+Outside range: resolve both GPS positions to city/town/village and compare their
+normalized names plus state/country. District is not an eligibility condition. Same city/town
+passes; mismatch or unavailable data is flagged for the manual review team.
+Date, face, duplicate and other attendance checks still run independently.
+
+Setup accepts GPS photos or entered coordinates. City labels are descriptive;
+the attendance fallback resolves the saved assignment coordinates, preventing
+stale roster labels from controlling the result. Historical records are unchanged.
+Previous offline district data and its migration script are retained for reference,
+but district-ID matching is no longer the active attendance policy. Do not run
+that old migration for this policy.
+
+City lookup uses GEOCODING_URL (default Nominatim public reverse endpoint).
+Only coordinates are sent, not photos or employee identifiers. Redis caches results
+for 30 days, failures for 60 seconds, and serializes requests with a two-second
+cooldown across API/workers. Public service use must remain moderate and comply
+with https://operations.osmfoundation.org/policies/nominatim/ . There are no paid
+API keys; rate limits and availability still apply. Spelling aliases or missing
+city context can require manual review. This is a name-based fallback, not a
+municipal boundary guarantee. Location data © OpenStreetMap contributors, ODbL.
+
 
 All services run in the `attendance-dev` Compose network. SQL Server and Redis
 are not published to host ports. The web app is available on `localhost:8081`,
@@ -67,3 +92,7 @@ docker compose --env-file backend/.env --env-file attendance_dev/.env -f attenda
 ```
 
 The last command deletes all test data.
+
+Shift defaults (IST): LSS 07:00–15:00 with 60 minutes grace; LS/FS 09:00–19:00 with 240 minutes grace. New registrations and role changes prefill these values; explicit employee overrides remain supported. Grace is measured after shift start. Existing P/L/AL classification is unchanged.
+
+Field Supervisors (FS) have an Enable location check toggle, on by default. When disabled, missing GPS/assignment, range and city lookup do not flag attendance; the submission records location as disabled. Photo date/time, face, duplicate, liveness and shift checks remain active. LS/LSS cannot bypass location checking. Existing attendance records are unchanged by toggling this setting.

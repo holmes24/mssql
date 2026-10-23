@@ -1,7 +1,7 @@
 """
 Checks whether the OCR'd selfie timestamp falls within the allowed
 check-in window. Per-employee shift_start/shift_end/shift_grace_minutes
-(set via PATCH /employees/{id}) override the global config.py defaults
+(set via PATCH /employees/{id}) override the role defaults
 when present — most employees use the default, but a site with a
 different shift pattern can be set individually.
 
@@ -17,7 +17,6 @@ Returns a shift status:
 import logging
 from datetime import datetime, time
 
-from app.config import settings
 
 logger = logging.getLogger("shift_check")
 
@@ -47,22 +46,30 @@ def _parse_hhmm(value: str) -> time | None:
         return None
 
 
+def role_shift_defaults(role: str | None) -> dict:
+    if role == "LSS":
+        return {"shift_start": "07:00", "shift_end": "15:00", "shift_grace_minutes": 60}
+    return {"shift_start": "09:00", "shift_end": "19:00", "shift_grace_minutes": 240}
+
+
 def check_shift_window(
     submitted_at: datetime,
     employee_shift_start: str | None = None,
     employee_shift_end: str | None = None,
     employee_grace_minutes: int | None = None,
+    employee_role: str | None = None,
 ) -> tuple[str, str]:
     """
     Returns (status, reason). Caller decides whether the status should add
     an issue (see NON_FAILURE_STATUSES).
     """
-    start_str = employee_shift_start or settings.shift_window_start
-    end_str = employee_shift_end or settings.shift_window_end
+    defaults = role_shift_defaults(employee_role)
+    start_str = employee_shift_start or defaults["shift_start"]
+    end_str = employee_shift_end or defaults["shift_end"]
     grace = (
         employee_grace_minutes
         if employee_grace_minutes is not None
-        else settings.shift_grace_minutes
+        else defaults["shift_grace_minutes"]
     )
 
     shift_start = _parse_hhmm(start_str)

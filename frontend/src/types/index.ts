@@ -17,6 +17,11 @@ export interface AssignedSite {
   name: string;
   lat: number;
   long: number;
+  city?: string | null;
+  district?: string | null;
+  district_id?: string | null;
+  dataset_id?: string | null;
+  match_level?: 'city' | 'district';
 }
 
 export interface Employee {
@@ -30,6 +35,7 @@ export interface Employee {
   parent_employee_id: string | null;
   area: string | null;
   designation: string | null;
+  location_check_enabled?: boolean;
   assigned_site: AssignedSite | null;
   geofence_radius_km: number;
   shift_start: string | null;
@@ -97,6 +103,12 @@ export interface AttendanceRecord {
   attendance_code?: string;
   check_in_at_ist?: string | null;
   geofence_display?: string;
+  location_match_status?: 'disabled' | 'in_range' | 'in_area' | 'out_of_area' | 'unavailable' | null;
+  location_match_level?: 'city' | 'district' | null;
+  attendance_city?: string | null;
+  attendance_district?: string | null;
+  expected_city?: string | null;
+  expected_district?: string | null;
   review_display?: string;
   attendance_status: 'present' | 'absent' | 'pending' | 'late' | 'absent_late' | null;
   flag_reason: string | null;

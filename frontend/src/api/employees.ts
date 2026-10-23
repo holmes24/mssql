@@ -30,7 +30,17 @@ export interface CreateEmployeePayload {
   parent_employee_id?: string;
   area?: string;
   designation?: string;
-  assigned_site?: { name: string; lat: number; long: number } | null;
+  location_check_enabled?: boolean;
+  assigned_site?: {
+    name: string;
+    lat: number;
+    long: number;
+    city?: string | null;
+    district?: string | null;
+    district_id?: string | null;
+    dataset_id?: string | null;
+    match_level?: 'city' | 'district';
+  } | null;
   geofence_radius_km?: number;
   shift_start?: string | null;
   shift_end?: string | null;

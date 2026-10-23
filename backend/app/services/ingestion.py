@@ -25,7 +25,7 @@ from app.services.alert_formatting import format_issues_for_alert
 from app.services.duplicate_check import compute_image_hash, is_duplicate
 from app.services.face_detect import detect_face
 from app.services.face_match import verify_identity
-from app.services.geofence import check_geofence
+from app.services.location_policy import check_attendance_location
 from app.services.liveness import check_passive_liveness
 from app.services.ocr import OverlayData, extract_overlay_data
 from app.services.shift_check import NON_FAILURE_STATUSES, check_shift_window
@@ -256,8 +256,14 @@ async def process_attendance_submission(
         return
     image_bytes = await download_media(media_url)
 
+    location_check_enabled = not (
+        roster_entry is not None and roster_entry.role == "FS"
+        and roster_entry.location_check_enabled is False
+    )
     overlay = extract_overlay_data(image_bytes)
-    if not overlay.extraction_complete:
+    if not location_check_enabled and overlay.timestamp is None:
+        issues.append("photo_timestamp_missing")
+    elif location_check_enabled and not overlay.extraction_complete:
         issues.append("overlay_extraction_incomplete")
 
     # Validate photo capture date matches current day
@@ -306,15 +312,35 @@ async def process_attendance_submission(
     geofence_passed = None
     geofence_distance = None
     geofence_radius_meters = None
-    if roster_entry and roster_entry.assigned_site and overlay.latitude is not None and overlay.longitude is not None:
-        geofence_radius_meters = roster_entry.geofence_radius_km * 1000
-        geofence_passed, geofence_distance = check_geofence(
-            overlay.latitude, overlay.longitude,
-            roster_entry.assigned_site.lat, roster_entry.assigned_site.long,
-            radius_meters=geofence_radius_meters,
+    location_result = {}
+    location_match_status = None
+    location_match_level = None
+    expected_city = None
+    expected_district = None
+    attendance_city = None
+    attendance_district = None
+    if not location_check_enabled:
+        location_match_status = "disabled"
+        location_result = {"method": "disabled"}
+    elif roster_entry and roster_entry.assigned_site and overlay.latitude is not None and overlay.longitude is not None:
+        assigned_site = roster_entry.assigned_site
+        location_result = await check_attendance_location(
+            overlay.latitude, overlay.longitude, assigned_site.lat, assigned_site.long,
+            roster_entry.geofence_radius_km,
         )
-        if not geofence_passed:
-            issues.append(f"geofence_fail_{geofence_distance:.0f}m")
+        location_match_level = "city"
+        geofence_passed = location_result["passed"]
+        geofence_distance = location_result["distance"]
+        geofence_radius_meters = location_result["radius"]
+        location_match_status = location_result["status"]
+        expected_city = location_result["assigned"].get("city")
+        expected_district = location_result["assigned"].get("district")
+        attendance_city = location_result["actual"].get("city")
+        attendance_district = location_result["actual"].get("district")
+        if geofence_passed is None:
+            issues.append("location_city_unavailable")
+        elif not geofence_passed:
+            issues.append("location_outside_range_and_city")
     elif roster_entry and not roster_entry.assigned_site:
         issues.append("assigned_site_not_configured")
     elif roster_entry and (overlay.latitude is None or overlay.longitude is None):
@@ -346,6 +372,7 @@ async def process_attendance_submission(
             employee_shift_start=roster_entry.shift_start if roster_entry else None,
             employee_shift_end=roster_entry.shift_end if roster_entry else None,
             employee_grace_minutes=roster_entry.shift_grace_minutes if roster_entry else None,
+            employee_role=roster_entry.role if roster_entry else None,
         )
         if shift_status not in NON_FAILURE_STATUSES:
             issues.append(f"shift_{shift_status}")
@@ -356,6 +383,7 @@ async def process_attendance_submission(
     if verdict == "flagged":
         if any(
             i.startswith((
+                "photo_timestamp_missing",
                 "date_mismatch",
                 "exif_date_mismatch",
                 "possible_date_edit_near_duplicate",
@@ -363,7 +391,7 @@ async def process_attendance_submission(
             for i in issues
         ):
             flag_reason = "DATE"
-        elif any("geofence" in i for i in issues):
+        elif any("geofence" in i or i.startswith("location_") or i in {"assigned_site_not_configured", "photo_gps_missing"} for i in issues):
             flag_reason = "LOCATION"
         elif any("face" in i or "identity" in i for i in issues):
             flag_reason = "FACE"
@@ -395,6 +423,14 @@ async def process_attendance_submission(
         "geofence_passed": geofence_passed,
         "geofence_distance_m": geofence_distance,
         "geofence_radius_meters": geofence_radius_meters,
+        "location_check_enabled": location_check_enabled,
+        "location_check_method": location_result.get("method"),
+        "location_match_status": location_match_status,
+        "location_match_level": location_match_level,
+        "expected_city": expected_city,
+        "expected_district": expected_district,
+        "attendance_city": attendance_city,
+        "attendance_district": attendance_district,
         "face_present": face_present,
         "face_count": face_count,
         "liveness_status": liveness_status,
