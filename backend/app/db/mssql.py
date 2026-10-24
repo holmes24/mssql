@@ -670,6 +670,55 @@ def get_db() -> Database:
     return Database(get_engine())
 
 
+async def delete_attendance_submission_transactional(submission_id: str) -> bool:
+    """Delete a photo record and its same-day status override atomically."""
+    from bson.errors import InvalidId
+
+    try:
+        object_id = ObjectId(submission_id)
+    except InvalidId:
+        return False
+
+    engine = get_engine()
+    async with engine.begin() as connection:
+        row = (await connection.execute(
+            text(
+                "SELECT [data_json] FROM [dbo].[attendance_submissions] "
+                "WITH (UPDLOCK, HOLDLOCK) WHERE [id]=:id"
+            ),
+            {"id": str(object_id)},
+        )).first()
+        if row is None:
+            return False
+
+        submission = json.loads(row.data_json)
+        result = await connection.execute(
+            text("DELETE FROM [dbo].[attendance_submissions] WHERE [id]=:id"),
+            {"id": str(object_id)},
+        )
+        if result.rowcount != 1:
+            return False
+
+        employee_id = submission.get("employee_id")
+        attendance_date = submission.get("attendance_date")
+        if not attendance_date:
+            from app.db.mongodb import normalize_date_str
+
+            attendance_date = normalize_date_str(submission.get("received_at_utc"))
+        if employee_id and attendance_date:
+            await connection.execute(
+                text(
+                    "DELETE FROM [dbo].[attendance_overrides] "
+                    "WHERE JSON_VALUE([data_json], '$.employee_id') "
+                    "COLLATE Latin1_General_100_BIN2=:employee_id "
+                    "AND JSON_VALUE([data_json], '$.attendance_date') "
+                    "COLLATE Latin1_General_100_BIN2=:attendance_date"
+                ),
+                {"employee_id": employee_id, "attendance_date": attendance_date},
+            )
+        return True
+
+
 async def ensure_schema() -> None:
     engine = get_engine()
     async with engine.begin() as connection:

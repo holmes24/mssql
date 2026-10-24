@@ -733,6 +733,11 @@ async def list_attendance(
 
 
 async def delete_attendance_submission(submission_id: str) -> bool:
+    if settings.database_backend == "mssql":
+        from app.db.mssql import delete_attendance_submission_transactional
+
+        return await delete_attendance_submission_transactional(submission_id)
+
     from bson import ObjectId
     from bson.errors import InvalidId
 
@@ -741,8 +746,28 @@ async def delete_attendance_submission(submission_id: str) -> bool:
     except InvalidId:
         return False
 
-    result = await get_db().submissions.delete_one({"_id": object_id})
-    return result.deleted_count == 1
+    db = get_db()
+    submission = await db.submissions.find_one({"_id": object_id})
+    if submission is None:
+        return False
+
+    result = await db.submissions.delete_one({"_id": object_id})
+    if result.deleted_count != 1:
+        return False
+
+    # Status changes are stored separately from photo submissions. If an
+    # admin deletes that attendance row, remove its same-day override too;
+    # otherwise the deleted status still wins in the grid and blocks retries.
+    employee_id = submission.get("employee_id")
+    attendance_date = normalize_date_str(
+        submission.get("attendance_date") or submission.get("received_at_utc")
+    )
+    if employee_id and attendance_date:
+        await db.attendance_overrides.delete_one({
+            "employee_id": employee_id,
+            "attendance_date": attendance_date,
+        })
+    return True
 
 
 async def has_submission_today(
@@ -1133,6 +1158,15 @@ async def mark_notification_sent(notification_id: str) -> None:
     await db.notifications.update_one(
         {"notification_id": notification_id},
         {"$set": {"status": "sent", "sent_at": datetime.now(timezone.utc)}}
+    )
+
+
+async def mark_notification_skipped(notification_id: str) -> None:
+    db = get_db()
+    await db.notifications.update_one(
+        {"notification_id": notification_id},
+        {"$set": {"status": "skipped", "skip_reason": "employee_reply_policy",
+                  "skipped_at": datetime.now(timezone.utc)}}
     )
 
 

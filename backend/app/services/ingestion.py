@@ -20,7 +20,6 @@ from app.db.mongodb import (
 )
 from app.redis_queue import NOTIFICATION_STREAM, enqueue, get_redis
 from app.schemas import InteraktWebhookPayload
-from app.services.admin_alert import send_admin_alert
 from app.services.alert_formatting import format_issues_for_alert
 from app.services.duplicate_check import compute_image_hash, is_duplicate
 from app.services.face_detect import detect_face
@@ -29,7 +28,7 @@ from app.services.location_policy import check_attendance_location
 from app.services.liveness import check_passive_liveness
 from app.services.ocr import OverlayData, extract_overlay_data
 from app.services.shift_check import NON_FAILURE_STATUSES, check_shift_window
-from app.services.whatsapp_reply import build_reply_message
+from app.services.whatsapp_reply import build_submission_reply
 
 logger = logging.getLogger("ingestion")
 INDIA_TZ = ZoneInfo("Asia/Kolkata")
@@ -106,22 +105,18 @@ async def queue_submission_notifications(
     verdict = submission.get("verdict")
     issues = submission.get("issues", [])
 
-    reply = build_reply_message(
-        verdict,
-        roster_name,
-        issues,
-        submission.get("previous_flagged_attempts") or [],
-    )
-    await _queue_notification({
-        "notification_id": _notification_id(event_id, "employee_reply"),
-        "event_id": event_id,
-        "kind": "employee_reply",
-        "status": "pending",
-        "attempt": 0,
-        "country_code": payload.data.customer.country_code,
-        "phone_number": payload.data.customer.phone_number,
-        "message": reply,
-    })
+    reply = build_submission_reply(submission)
+    if reply is not None:
+        await _queue_notification({
+            "notification_id": _notification_id(event_id, "employee_reply"),
+            "event_id": event_id,
+            "kind": "employee_reply",
+            "status": "pending",
+            "attempt": 0,
+            "country_code": payload.data.customer.country_code,
+            "phone_number": payload.data.customer.phone_number,
+            "message": reply,
+        })
 
     if verdict != "verified":
         overlay = submission.get("overlay") or {}
@@ -182,16 +177,6 @@ async def process_attendance_submission(
             roster_entry.employee_id,
             event_id,
         )
-        await _queue_notification({
-            "notification_id": _notification_id(event_id, "pc_attendance_info"),
-            "event_id": event_id,
-            "kind": "employee_reply",
-            "status": "pending",
-            "attempt": 0,
-            "country_code": payload.data.customer.country_code,
-            "phone_number": payload.data.customer.phone_number,
-            "message": "Attendance is not required for Project Co-Ordinators.",
-        })
         return
 
     if roster_entry is not None and not roster_entry.is_active:
@@ -232,17 +217,6 @@ async def process_attendance_submission(
             roster_entry.employee_id, today_ist
         )
         if retry_submission is None:
-            warning_job = {
-                "notification_id": _notification_id(event_id, "employee_duplicate_day"),
-                "event_id": event_id,
-                "kind": "employee_reply",
-                "status": "pending",
-                "attempt": 0,
-                "country_code": payload.data.customer.country_code,
-                "phone_number": payload.data.customer.phone_number,
-                "message": "⚠️ You've already submitted your attendance for today. If there's a problem with it, please contact your admin/supervisor.",
-            }
-            await _queue_notification(warning_job)
             return
         logger.info(
             "Accepting replacement photo from %s for pending submission %s",

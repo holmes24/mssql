@@ -96,3 +96,5 @@ The last command deletes all test data.
 Shift defaults (IST): LSS 07:00–15:00 with 60 minutes grace; LS/FS 09:00–19:00 with 240 minutes grace. New registrations and role changes prefill these values; explicit employee overrides remain supported. Grace is measured after shift start. Existing P/L/AL classification is unchanged.
 
 Field Supervisors (FS) have an Enable location check toggle, on by default. When disabled, missing GPS/assignment, range and city lookup do not flag attendance; the submission records location as disabled. Photo date/time, face, duplicate, liveness and shift checks remain active. LS/LSS cannot bypass location checking. Existing attendance records are unchanged by toggling this setting.
+
+Employee WhatsApp replies are limited to flagged submissions and Absent due to late check-in (`absent_late`). Present, Late, ordinary Absent, accepted replacement photos, coordinator information, and already-submitted acknowledgments stay silent. The notification worker rechecks persisted attendance before sending, skips obsolete/routine queued replies, and uses a dedicated late-absence message. Existing admin alerts are unchanged.

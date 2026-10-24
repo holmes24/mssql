@@ -128,3 +128,17 @@ def build_reply_message(
         "⚠️ Your attendance photo could not be verified, so attendance is not confirmed. "
         f"Reason: {reason}."
     )
+
+def build_submission_reply(submission: dict) -> str | None:
+    """Only attendance exceptions warrant a paid employee reply."""
+    if submission.get("verdict") == "flagged":
+        return build_reply_message(
+            "flagged", submission.get("employee_name"), submission.get("issues") or []
+        )
+    if submission.get("attendance_status") == "absent_late":
+        return (
+            "⚠️ Your attendance is marked Absent due to late check-in. "
+            "Your photo time is outside the allowed check-in period. "
+            "Please contact your supervisor if you need a review."
+        )
+    return None

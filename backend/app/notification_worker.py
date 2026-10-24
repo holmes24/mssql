@@ -6,13 +6,15 @@ from datetime import datetime, timezone
 from app.config import settings
 from app.db.mongodb import (
     claim_notification,
+    get_db,
+    mark_notification_skipped,
     ensure_indexes,
     mark_notification_retry,
     mark_notification_sent,
 )
 from app.redis_queue import NOTIFICATION_STREAM, DLQ_STREAM, ensure_stream_group, get_redis, enqueue, decode_message
 from app.services.admin_alert import send_admin_alert
-from app.services.whatsapp_reply import send_text_reply
+from app.services.whatsapp_reply import send_text_reply, build_submission_reply
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("notification_worker")
@@ -27,7 +29,13 @@ async def handle_entry(redis, stream_id: str, fields: dict[str, str]) -> None:
         if not await claim_notification(notification_id):
             return
         if job["kind"] == "employee_reply":
-            ok = await send_text_reply(job["country_code"], job["phone_number"], job["message"])
+            # Recheck persisted attendance, including jobs queued before this policy.
+            submission = await get_db().submissions.find_one({"event_id": job.get("event_id")}) if job.get("event_id") else None
+            reply = build_submission_reply(submission or {})
+            if reply is None:
+                await mark_notification_skipped(notification_id)
+                return
+            ok = await send_text_reply(job["country_code"], job["phone_number"], reply)
         elif job["kind"] == "admin_alert":
             ok = await send_admin_alert(job["employee_name"], job["site"], job["issue_text"], job["time_str"])
         else:
