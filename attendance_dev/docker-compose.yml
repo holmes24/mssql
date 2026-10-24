@@ -103,8 +103,6 @@ services:
     build:
       context: ..
       dockerfile: attendance_dev/Dockerfile.frontend
-      args:
-        VITE_SHARED_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in the backend environment file}
     restart: unless-stopped
     networks: [attendance]
 

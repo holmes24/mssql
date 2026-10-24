@@ -234,7 +234,7 @@ class AttendanceListTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(total, 0)
         list_employees.assert_not_awaited()
 
-    async def test_project_coordinator_image_is_replied_to_without_processing(self):
+    async def test_project_coordinator_image_is_not_replied_to_or_processed(self):
         from types import SimpleNamespace
 
         payload = InteraktWebhookPayload.model_validate({
@@ -279,11 +279,7 @@ class AttendanceListTests(unittest.IsolatedAsyncioTestCase):
             await process_attendance_submission(payload, "event-1")
 
         download_media.assert_not_awaited()
-        queue_notification.assert_awaited_once()
-        self.assertEqual(
-            queue_notification.await_args.args[0]["message"],
-            "Attendance is not required for Project Co-Ordinators.",
-        )
+        queue_notification.assert_not_awaited()
 
     async def test_manual_entry_and_override_reject_project_coordinators(self):
         coordinator = RosterEntry(
@@ -353,7 +349,12 @@ class AttendanceListTests(unittest.IsolatedAsyncioTestCase):
                 "pc_id": "PC001",
                 "is_active": True,
             }],
-            grids={"EMP001": {"2026-10-15": "P"}},
+            grids={
+                "EMP001": {"2026-10-15": "P"},
+                # Even if legacy data has a coordinator grid, they are not
+                # an attendance participant or staff-role worksheet row.
+                "PC001": {"2026-10-15": "P"},
+            },
             days=["2026-10-15"],
         )
         workbook = load_workbook(BytesIO(workbook_bytes), read_only=True)

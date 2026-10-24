@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import settings
@@ -73,17 +73,3 @@ async def get_current_admin(
             detail="Manual-team access required",
         )
     return user
-
-
-async def verify_api_key(x_api_key: str = Header(default=None)) -> None:
-    """
-    Gates /auth/login specifically — this is the one endpoint with no other
-    protection (you need to log in BEFORE you have a JWT), so it's
-    otherwise wide open to brute-force username/password guessing. A
-    shared API key adds a defense-in-depth layer: even a correct
-    username/password is useless without this too.
-    """
-    if not settings.app_api_key:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    if x_api_key != settings.app_api_key:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")

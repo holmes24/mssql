@@ -8,7 +8,7 @@ after the pilot period against real submission data.
 import os
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
-    app_api_key: str = os.getenv("APP_API_KEY", "")  # gates /auth/login specifically
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:5173")
 
     # --- Database (MongoDB) ---
@@ -96,8 +95,7 @@ class Settings(BaseSettings):
     liveness_min_face_ratio: float = float(os.getenv("LIVENESS_MIN_FACE_RATIO", "0.08"))
     liveness_min_sharpness: float = float(os.getenv("LIVENESS_MIN_SHARPNESS", "35.0"))
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

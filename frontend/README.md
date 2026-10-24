@@ -10,8 +10,8 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill in `VITE_SHARED_API_KEY` in `.env.local` — this is the `X-API-Key` value
-`/auth/login` expects (ask whoever holds the backend config for it).
+Login uses the account username and password over HTTPS. The production Nginx
+configuration rate-limits login attempts by client IP.
 
 ```bash
 npm run dev

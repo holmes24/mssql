@@ -25,7 +25,7 @@ WhatsApp / Interakt
    |                              |
    +------------------------------+--> Interakt
 
-MongoDB = system of record
+MongoDB or MSSQL = system of record, selected with DB_BACKEND
 Redis = durable work transport / back-pressure / retry queue
 Nginx = public TLS termination; ngrok is not used in production
 ```
@@ -52,16 +52,31 @@ docker run -d --name attendance-redis -p 127.0.0.1:6379:6379 redis:8-alpine redi
 Copy `backend/.env.example` to `backend/.env` and replace every placeholder.
 Never commit `.env`.
 
-For production containers, the internal URLs are typically:
+For production containers, configure the selected database and Redis URLs in
+the untracked environment file. Example MongoDB settings:
 
 ```text
 REDIS_URL=redis://redis:6379/0
+DB_BACKEND=mongodb
 MONGODB_URL=mongodb://<app-user>:<password>@mongo:27017/attendance_agent?authSource=admin
-ENVIRONMENT=production
 CORS_ORIGINS=https://attendance.example.com
 ```
 
 Use a dedicated MongoDB application user rather than the MongoDB root user for the application.
+
+For MSSQL, set `DB_BACKEND=mssql` and provide the production SQL Server host,
+database name, encryption settings, and credentials through the deployment
+team's secret store. The app only initializes its tables inside the configured
+database; it does not create the database or migrate data from MongoDB. Test
+schema initialization and any required data migration against a staging copy
+before switching production traffic. Do not use the local `.env.mssql` values
+as production settings.
+
+Use a currently supported SQL Server release (SQL Server 2019 or newer is
+recommended). This backend uses `JSON_VALUE` and `ISJSON`, which require SQL
+Server 2016 or newer; SQL Server 2012 is incompatible and out of support.
+See Microsoft's [SQL Server JSON documentation](https://learn.microsoft.com/en-us/sql/relational-databases/json/json-data-sql-server)
+and [SQL Server 2012 lifecycle](https://learn.microsoft.com/en-us/lifecycle/products/microsoft-sql-server-2012).
 
 ## 3. Run the services
 
@@ -97,15 +112,29 @@ docker compose --env-file ../backend/.env -f docker-compose.production.yml build
 docker compose --env-file ../backend/.env -f docker-compose.production.yml up -d
 ```
 
-The frontend build embeds `APP_API_KEY` in its browser bundle. Treat it as public; it is not a secret.
+For an MSSQL deployment, the deployment engineer should create
+`backend/.env.mssql` from the example with that server's approved connection
+settings and include `-f docker-compose.mssql.yml` on both Compose commands.
+This overlay selects the MSSQL environment for the API and workers. Keep
+credentials out of Git and verify the resolved Compose configuration without
+printing its secret values.
 
-Before starting Nginx, provision the TLS certificate for your real domain and mount it at the paths in `deploy/nginx.conf`.
+The production Compose file sets `ENVIRONMENT=production`; the API checks that
+`JWT_SECRET_KEY`, `INTERAKT_WEBHOOK_SECRET`, and `INTERAKT_API_KEY` are set.
+Login uses each account's username and password. Nginx limits `/api/auth/login`
+to five requests per minute per client IP with a small burst allowance; the
+browser does not contain a shared API key.
+
+Before starting Nginx, replace `example.com` and the certificate paths in
+`deploy/nginx.conf` with the real domain and provision the matching TLS
+certificate. The webhook route is already `/webhook/interakt`; its production
+URL is the real HTTPS domain plus that path.
 
 ## 4. Production HTTPS
 
 Point DNS `attendance.example.com` to the production server. Open ports 80 and 443 only. Nginx redirects HTTP to HTTPS and proxies `/webhook/interakt` to FastAPI.
 
-The Interakt webhook URL becomes:
+Set this URL in Interakt after the domain and TLS certificate are active:
 
 ```text
 https://attendance.example.com/webhook/interakt
@@ -115,7 +144,9 @@ There is no ngrok dependency in production.
 
 ## 5. Backups
 
-Use `scripts/backup_mongodb.ps1` on Windows or an equivalent scheduled `mongodump` job on Linux. Store backups outside the MongoDB host, encrypt them, and periodically test restoration.
+Back up the selected system-of-record database using the database team's
+approved schedule. Store backups outside the database host, encrypt them, and
+periodically test restoration before production launch.
 
 The backup must include at least:
 

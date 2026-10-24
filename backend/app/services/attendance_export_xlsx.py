@@ -92,7 +92,10 @@ def build_export_workbook(
     summary.append(["Report End", days[-1] if days else NOT_PROVIDED])
     summary.append([
         "Total Attendance Participants",
-        sum(grids.get(str(person["employee_id"])) is not None for person in people),
+        sum(
+            grids.get(str(person.get("employee_id", ""))) is not None
+            for person in employees
+        ),
     ])
     summary.append([])
 
@@ -140,8 +143,8 @@ def build_export_workbook(
         validation.showErrorMessage = True
         ws_pc.add_data_validation(validation)
         role_people = [
-            person for person in people
-            if person.get("role", "FS") == role
+            person for person in employees
+            if person.get("role") == role
             and grids.get(str(person.get("employee_id", ""))) is not None
         ]
         for emp in sorted(role_people, key=lambda x: str(x.get("name") or "").casefold()):

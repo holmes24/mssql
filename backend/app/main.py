@@ -21,7 +21,6 @@ from app.auth import (
     get_current_admin,
     get_current_user,
     hash_password,
-    verify_api_key,
     verify_password,
 )
 from app.config import settings
@@ -122,7 +121,6 @@ async def on_startup():
         missing = []
         for name, value in {
             "JWT_SECRET_KEY": settings.jwt_secret_key,
-            "APP_API_KEY": settings.app_api_key,
             "INTERAKT_WEBHOOK_SECRET": settings.interakt_webhook_secret,
             "INTERAKT_API_KEY": settings.interakt_api_key,
         }.items():
@@ -244,7 +242,7 @@ async def interakt_webhook(
 
 
 @app.post("/auth/login")
-async def login(request: LoginRequest, _: None = Depends(verify_api_key)):
+async def login(request: LoginRequest):
     """
     CMS login — returns a JWT access token (valid for
     settings.jwt_expire_minutes). Pass it as `Authorization: Bearer <token>`

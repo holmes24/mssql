@@ -73,3 +73,17 @@ copy data. Every image submission is retained for audit, including additional
 submissions made after a valid attendance result. Fraud evidence stores image
 fingerprints and references to previous submissions rather than exposing face
 embeddings to the frontend.
+
+## Tests
+
+Install the test dependencies in a development environment, then run the
+backend suite from the `backend` directory:
+
+```powershell
+python -m pip install -r requirements-test.txt
+python -m pytest -q -p no:cacheprovider
+```
+
+The MSSQL tests in `tests/test_mssql_backend.py` validate SQL query and
+connection configuration logic without connecting to a live SQL Server. A
+separate staging database is still required to verify a real deployment.
